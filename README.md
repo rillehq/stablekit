@@ -63,6 +63,19 @@ func main() {
 		log.Fatal(err)
 	}
 	fmt.Println("Out:", quote.OutAmount, "Impact:", quote.PriceImpactPct)
+
+	// Execute the swap (user pays SOL fee)
+	res, err := c.Swap(ctx, stablekit.SwapOpts{
+		UserSigner:  solana.MustPrivateKeyFromBase58("..."),
+		InputMint:   stablekit.USDT,
+		OutputMint:  stablekit.USDC,
+		Amount:      1_000_000,
+		SlippageBps: 10,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("Swap signature:", res.Signature)
 }
 ```
 
@@ -76,6 +89,7 @@ func main() {
 | `GaslessTransfer`      | SPL transfer where Kora pays the SOL fee (user pays in token)          |
 | `GaslessTransferTx`    | Kora-built simple transfer (returns base64 transaction)                |
 | `Quote`                | Jupiter v6 quote (USDT↔USDC etc.)                                      |
+| `Swap`                 | Quote + execute swap in one call (user pays SOL fee)                   |
 | `RPC()`                | Underlying solana-go RPC client (escape hatch)                         |
 | `KoraEnabled()`        | Whether Kora was configured                                            |
 

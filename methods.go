@@ -272,6 +272,64 @@ func (c *Client) Quote(ctx context.Context, in, out Mint, amount uint64, slippag
 	return c.jupiter.quote(ctx, in.String(), out.String(), amount, slippageBps)
 }
 
+// Swap quotes and executes a Jupiter swap in one call. The user pays the
+// SOL fee. Returns the on-chain signature and the realized quote.
+func (c *Client) Swap(ctx context.Context, opts SwapOpts) (SwapResult, error) {
+	if opts.Amount == 0 {
+		return SwapResult{}, errors.New("stablekit.Swap: Amount must be > 0")
+	}
+	if opts.InputMint == "" || opts.OutputMint == "" {
+		return SwapResult{}, errors.New("stablekit.Swap: InputMint and OutputMint are required")
+	}
+	slippage := opts.SlippageBps
+	if slippage <= 0 {
+		slippage = 50
+	}
+
+	user := opts.UserSigner.PublicKey()
+
+	quote, err := c.jupiter.quote(ctx, opts.InputMint.String(), opts.OutputMint.String(), opts.Amount, slippage)
+	if err != nil {
+		return SwapResult{}, fmt.Errorf("stablekit.Swap: quote: %w", err)
+	}
+
+	swapResp, err := c.jupiter.swap(ctx, jupiterSwapRequest{
+		QuoteResponse:    quote,
+		UserPublicKey:    user.String(),
+		WrapAndUnwrapSol: opts.WrapAndUnwrapSol,
+	})
+	if err != nil {
+		return SwapResult{}, fmt.Errorf("stablekit.Swap: build swap: %w", err)
+	}
+
+	txBytes, err := base64.StdEncoding.DecodeString(swapResp.SwapTransaction)
+	if err != nil {
+		return SwapResult{}, fmt.Errorf("stablekit.Swap: decode swap tx: %w", err)
+	}
+	tx, err := solana.TransactionFromBytes(txBytes)
+	if err != nil {
+		return SwapResult{}, fmt.Errorf("stablekit.Swap: parse swap tx: %w", err)
+	}
+
+	if _, err := tx.Sign(func(key solana.PublicKey) *solana.PrivateKey {
+		if key.Equals(user) {
+			return &opts.UserSigner
+		}
+		return nil
+	}); err != nil {
+		return SwapResult{}, fmt.Errorf("stablekit.Swap: sign: %w", err)
+	}
+
+	sig, err := c.rpc.SendTransactionWithOpts(ctx, tx, rpc.TransactionOpts{
+		PreflightCommitment: rpc.CommitmentConfirmed,
+	})
+	if err != nil {
+		return SwapResult{}, fmt.Errorf("stablekit.Swap: send: %w", err)
+	}
+
+	return SwapResult{Signature: sig, Quote: quote}, nil
+}
+
 // parseAmount parses an SPL token amount returned as a string.
 func parseAmount(s string) (uint64, error) {
 	if s == "" {

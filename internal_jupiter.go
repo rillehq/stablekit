@@ -35,6 +35,28 @@ func newJupiterClient(cfg jupiterConfig) *jupiterClient {
 	}
 }
 
+// jupiterSwapRequest is the body for POST /swap.
+type jupiterSwapRequest struct {
+	QuoteResponse    QuoteResponse `json:"quoteResponse"`
+	UserPublicKey    string        `json:"userPublicKey"`
+	WrapAndUnwrapSol *bool         `json:"wrapAndUnwrapSol,omitempty"`
+}
+
+// jupiterSwapResponse is the body returned by POST /swap.
+type jupiterSwapResponse struct {
+	SwapTransaction      string `json:"swapTransaction"`
+	LastValidBlockHeight uint64 `json:"lastValidBlockHeight"`
+}
+
+// swap asks Jupiter to build a base64 versioned swap transaction.
+func (j *jupiterClient) swap(ctx context.Context, req jupiterSwapRequest) (jupiterSwapResponse, error) {
+	var resp jupiterSwapResponse
+	if err := j.doJSON(ctx, http.MethodPost, j.endpoint+"/swap", req, &resp); err != nil {
+		return jupiterSwapResponse{}, err
+	}
+	return resp, nil
+}
+
 // quote fetches a Jupiter v6 quote.
 func (j *jupiterClient) quote(ctx context.Context, in, out string, amount uint64, slippageBps int) (QuoteResponse, error) {
 	q := url.Values{}

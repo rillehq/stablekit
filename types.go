@@ -92,6 +92,40 @@ type GaslessTransferTxOpts struct {
 	Amount uint64
 }
 
+// SwapOpts is the parameter for Client.Swap.
+//
+// Swap is a one-call helper that fetches a Jupiter quote, asks Jupiter to
+// build a swap transaction, signs it with UserSigner, and submits it. The
+// user pays the SOL fee. For "user has zero SOL" scenarios use the (yet to
+// be added) GaslessSwap.
+type SwapOpts struct {
+	// UserSigner signs the swap tx and provides the user pubkey. Must hold
+	// a balance of InputMint at the derived ATA.
+	UserSigner solana.PrivateKey
+	// InputMint is the source stablecoin mint.
+	InputMint Mint
+	// OutputMint is the destination stablecoin mint.
+	OutputMint Mint
+	// Amount is the input amount in the InputMint's smallest unit.
+	Amount uint64
+	// SlippageBps caps acceptable slippage in basis points (e.g. 10 = 0.10%).
+	// Defaults to 50 if zero.
+	SlippageBps int
+	// WrapAndUnwrapSol asks Jupiter to auto-wrap SOL → wSOL and unwrap on
+	// the way back. Only relevant if InputMint or OutputMint is wrapped SOL.
+	// Defaults to true.
+	WrapAndUnwrapSol *bool
+}
+
+// SwapResult is what Client.Swap returns.
+type SwapResult struct {
+	// Signature is the on-chain transaction signature.
+	Signature solana.Signature
+	// Quote is the Jupiter quote that was actually executed (handy for
+	// reporting realized price / impact back to callers).
+	Quote QuoteResponse
+}
+
 // QuoteResponse is the body returned by Jupiter's GET /quote.
 type QuoteResponse struct {
 	InputMint            string         `json:"inputMint"`

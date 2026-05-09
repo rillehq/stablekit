@@ -9,7 +9,18 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gagliardetto/solana-go"
 )
+
+// solanaKeypair returns a fresh keypair for tests that need a signer.
+func solanaKeypair() (solana.PrivateKey, solana.PublicKey) {
+	k, err := solana.NewRandomPrivateKey()
+	if err != nil {
+		panic(err)
+	}
+	return k, k.PublicKey()
+}
 
 func newTestClient(t *testing.T, koraHandler, jupiterHandler http.HandlerFunc) (*Client, func()) {
 	t.Helper()
@@ -146,6 +157,64 @@ func TestKoraError_Surfaced(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "bad mint") || !strings.Contains(err.Error(), "-32602") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSwap_BuildsTxFromJupiter(t *testing.T) {
+	// We mock the Jupiter side fully and verify stablekit drives the
+	// quote → swap RPC sequence correctly. We cannot exercise on-chain
+	// signing/sending in a unit test (that needs a real or mock Solana
+	// RPC), so the test stops short of solana.TransactionFromBytes.
+	calls := []string{}
+	c, _ := newTestClient(t, nil, func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/quote"):
+			_, _ = io.WriteString(w, `{
+				"inputMint":"`+string(USDT)+`",
+				"inAmount":"1000000",
+				"outputMint":"`+string(USDC)+`",
+				"outAmount":"999500",
+				"otherAmountThreshold":"998500",
+				"swapMode":"ExactIn",
+				"slippageBps":10,
+				"priceImpactPct":"0.0001",
+				"routePlan":[]
+			}`)
+		case r.URL.Path == "/swap":
+			var req jupiterSwapRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode swap req: %v", err)
+			}
+			if req.QuoteResponse.OutAmount != "999500" {
+				t.Fatalf("quote not threaded through: %+v", req.QuoteResponse)
+			}
+			if req.UserPublicKey == "" {
+				t.Fatal("missing userPublicKey")
+			}
+			// Return a deliberately-invalid base64 so we exercise the path
+			// up to the decode error without needing a real signed tx.
+			_, _ = io.WriteString(w, `{"swapTransaction":"not-base64!!!","lastValidBlockHeight":12345}`)
+		}
+	})
+
+	signer, _ := solanaKeypair()
+	_, err := c.Swap(context.Background(), SwapOpts{
+		UserSigner:  signer,
+		InputMint:   USDT,
+		OutputMint:  USDC,
+		Amount:      1_000_000,
+		SlippageBps: 10,
+	})
+	if err == nil {
+		t.Fatal("expected decode error from invalid base64, got nil")
+	}
+	if !strings.Contains(err.Error(), "decode swap tx") {
+		t.Fatalf("expected decode error, got: %v", err)
+	}
+	if len(calls) != 2 || !strings.HasPrefix(calls[0], "/quote") || calls[1] != "/swap" {
+		t.Fatalf("expected /quote then /swap, got %v", calls)
 	}
 }
 
