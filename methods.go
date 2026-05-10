@@ -63,6 +63,65 @@ func (c *Client) ResolveATA(ctx context.Context, owner solana.PublicKey, mint Mi
 	return ataAddr, info != nil && info.Value != nil, nil
 }
 
+// CreateATA creates the Associated Token Account for opts.Owner+opts.Mint
+// if it does not already exist. PayerSigner pays the ~0.002 SOL rent and
+// signs the transaction.
+//
+// Idempotent: if the ATA already exists, no transaction is sent and
+// AlreadyExists is true.
+func (c *Client) CreateATA(ctx context.Context, opts CreateATAOpts) (CreateATAResult, error) {
+	mintPK, err := opts.Mint.PublicKey()
+	if err != nil {
+		return CreateATAResult{}, fmt.Errorf("stablekit.CreateATA: parse mint: %w", err)
+	}
+	ataAddr, _, err := solana.FindAssociatedTokenAddress(opts.Owner, mintPK)
+	if err != nil {
+		return CreateATAResult{}, fmt.Errorf("stablekit.CreateATA: derive: %w", err)
+	}
+
+	info, err := c.rpc.GetAccountInfoWithOpts(ctx, ataAddr, &rpc.GetAccountInfoOpts{
+		Commitment: rpc.CommitmentConfirmed,
+	})
+	if err != nil && !isAccountNotFound(err) {
+		return CreateATAResult{}, fmt.Errorf("stablekit.CreateATA: account info: %w", err)
+	}
+	if err == nil && info != nil && info.Value != nil {
+		return CreateATAResult{Address: ataAddr, AlreadyExists: true}, nil
+	}
+
+	payer := opts.PayerSigner.PublicKey()
+	ix, err := ata.NewCreateInstruction(payer, opts.Owner, mintPK).ValidateAndBuild()
+	if err != nil {
+		return CreateATAResult{}, fmt.Errorf("stablekit.CreateATA: build instruction: %w", err)
+	}
+
+	blockhash, err := c.rpc.GetLatestBlockhash(ctx, rpc.CommitmentFinalized)
+	if err != nil {
+		return CreateATAResult{}, fmt.Errorf("stablekit.CreateATA: blockhash: %w", err)
+	}
+	tx, err := solana.NewTransaction([]solana.Instruction{ix}, blockhash.Value.Blockhash, solana.TransactionPayer(payer))
+	if err != nil {
+		return CreateATAResult{}, fmt.Errorf("stablekit.CreateATA: build tx: %w", err)
+	}
+	if _, err := tx.Sign(func(key solana.PublicKey) *solana.PrivateKey {
+		if key.Equals(payer) {
+			return &opts.PayerSigner
+		}
+		return nil
+	}); err != nil {
+		return CreateATAResult{}, fmt.Errorf("stablekit.CreateATA: sign: %w", err)
+	}
+
+	sig, err := c.rpc.SendTransactionWithOpts(ctx, tx, rpc.TransactionOpts{
+		PreflightCommitment: rpc.CommitmentConfirmed,
+	})
+	if err != nil {
+		return CreateATAResult{}, fmt.Errorf("stablekit.CreateATA: send: %w", err)
+	}
+
+	return CreateATAResult{Address: ataAddr, Signature: sig}, nil
+}
+
 // SendStable transfers SPL stablecoin from opts.From to opts.To. The sender
 // pays the SOL fee. Auto-creates the destination ATA if opts.CreateDestATA
 // is true.

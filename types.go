@@ -92,6 +92,30 @@ type GaslessTransferTxOpts struct {
 	Amount uint64
 }
 
+// CreateATAOpts is the parameter for Client.CreateATA.
+type CreateATAOpts struct {
+	// Owner is the wallet that will own the ATA. Can be any pubkey —
+	// callers commonly create ATAs for their users from a service-owned
+	// payer wallet.
+	Owner solana.PublicKey
+	// Mint identifies the stablecoin.
+	Mint Mint
+	// PayerSigner pays the ~0.002 SOL rent and signs the transaction.
+	// Typically a Rille-controlled wallet when warming up a new user
+	// deposit address.
+	PayerSigner solana.PrivateKey
+}
+
+// CreateATAResult is what Client.CreateATA returns.
+type CreateATAResult struct {
+	// Address is the derived ATA address.
+	Address solana.PublicKey
+	// Signature is the on-chain transaction signature. Zero if AlreadyExists.
+	Signature solana.Signature
+	// AlreadyExists is true if the ATA already existed and no tx was sent.
+	AlreadyExists bool
+}
+
 // SwapOpts is the parameter for Client.Swap.
 //
 // Swap is a one-call helper that fetches a Jupiter quote, asks Jupiter to

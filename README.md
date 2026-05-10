@@ -85,6 +85,7 @@ func main() {
 |------------------------|------------------------------------------------------------------------|
 | `Balance`              | SPL token balance for an owner+mint (returns 0 if ATA missing)         |
 | `ResolveATA`           | Derive the owner's ATA address; report whether it exists on-chain      |
+| `CreateATA`            | Create the owner's ATA on-chain (idempotent; ~0.002 SOL rent)          |
 | `SendStable`           | SPL transfer where the sender pays the SOL fee                         |
 | `GaslessTransfer`      | SPL transfer where Kora pays the SOL fee (user pays in token)          |
 | `GaslessTransferTx`    | Kora-built simple transfer (returns base64 transaction)                |
